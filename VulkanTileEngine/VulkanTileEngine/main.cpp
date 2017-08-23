@@ -137,6 +137,13 @@ const std::vector<uint16_t> indices = {
 	0, 1, 2, 2, 3, 0,
 };
 
+struct Keyboard {
+	bool upPressed = false;
+	bool leftPressed = false;
+	bool downPressed = false;
+	bool rightPressed = false;
+};
+
 class HelloTriangleApplication {
 public:
 	void run() {
@@ -194,6 +201,10 @@ private:
 	int TILE_HEIGHT;
 	int TILE_COUNT;
 	std::deque<int> tileMap;
+
+	Keyboard keyboard;
+	glm::vec3 cameraOffset;
+	std::chrono::high_resolution_clock::time_point lastFrame;
 
 
 	//PushConstants pushConstants;
@@ -326,6 +337,24 @@ private:
 
 	static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
 		HelloTriangleApplication* app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
+		bool set = (action != GLFW_RELEASE);
+		switch (key) 
+		{
+		case GLFW_KEY_UP:
+			app->keyboard.upPressed = set;
+			break;
+		case GLFW_KEY_LEFT:
+			app->keyboard.leftPressed = set;
+			break;
+		case GLFW_KEY_DOWN:
+			app->keyboard.downPressed = set;
+			break;
+		case GLFW_KEY_RIGHT:
+			app->keyboard.rightPressed = set;
+			break;
+		default:
+			break;
+		}
 
 	}
 
@@ -672,7 +701,7 @@ private:
 		rasterizer.rasterizerDiscardEnable = VK_FALSE;
 		rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 		rasterizer.lineWidth = 1.0f;
-		rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+		rasterizer.cullMode = VK_CULL_MODE_NONE;
 		rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 		rasterizer.depthBiasEnable = VK_FALSE;
 
@@ -1157,8 +1186,10 @@ private:
 		for (size_t i = 0; i < TILE_COUNT; i++) {
 			ubo.instance[i].arrayIndex = glm::vec4(tileMap[i]);
 			ubo.instance[i].model = glm::translate(glm::mat4(), glm::vec3(xOffset[i], yOffset[i], 0));
-			//std::cout << xOffset[i] << " " << yOffset[i] << std::endl;
 		}
+		cameraOffset = glm::vec3(0.0f, 0.001f, 5.0f);
+		ubo.matrices.view = glm::lookAt(cameraOffset, glm::vec3(0, 0, 1), glm::vec3(1, 0, 0));
+
 
 		void* data;
 		if (vkMapMemory(device, uniformBufferMemory, sizeof(ubo.matrices), (TILE_COUNT * sizeof(Instance)), 0, &data) != VK_SUCCESS) {
@@ -1384,19 +1415,34 @@ private:
 	}
 
 	void updateUniformBuffer() {
+		long long int timeSinceLastFrame = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - lastFrame).count();
+		float speed = 500000.0f;
 
-		float zoom = 10;
-		ubo.matrices.view = glm::lookAt(glm::vec3(0, 0.1, 5), glm::vec3(0, 0, 0), glm::vec3(0, 0, 1));
+
+		if (keyboard.upPressed) {
+			cameraOffset += glm::vec3(0.0f, -timeSinceLastFrame / speed, 0.0f);
+		}
+		if (keyboard.leftPressed) {
+			cameraOffset += glm::vec3(-timeSinceLastFrame / speed, 0.0f, 0.0f);
+		}
+		if (keyboard.rightPressed) {
+			cameraOffset += glm::vec3(timeSinceLastFrame / speed, 0.0f, 0.0f);
+		}
+		if (keyboard.downPressed) {
+			cameraOffset += glm::vec3(0.0f, timeSinceLastFrame / speed, 0.0f);
+		}
+
+		lastFrame = std::chrono::high_resolution_clock::now();
+		ubo.matrices.view = glm::lookAt(cameraOffset, glm::vec3(cameraOffset.x, cameraOffset.y, 0.0f), glm::vec3(0, 1, 0));
+
 		float aspect = swapChainExtent.width / (float)swapChainExtent.height;
-		ubo.matrices.proj = glm::ortho(-zoom * (float)aspect, zoom * (float)aspect, zoom, -zoom, -10.0f, 10.f);
+		float zoom = 2;
+		ubo.matrices.proj = glm::ortho(-zoom * (float)aspect, zoom * (float)aspect, zoom, -zoom, -10.0f, 1000.f);
+		ubo.matrices.proj[1][1] *= -1;
 
 		void* data;
 		vkMapMemory(device, uniformBufferMemory, 0, sizeof(ubo.matrices), 0, &data);
 		memcpy(data, &ubo.matrices, sizeof(ubo.matrices));
-		vkUnmapMemory(device, uniformBufferMemory);
-
-		vkMapMemory(device, uniformBufferMemory, sizeof(ubo.matrices), sizeof(ubo.instance) * (TILE_WIDTH * TILE_HEIGHT), 0, &data);
-		memcpy(data, ubo.instance, sizeof(ubo.instance) * (TILE_WIDTH * TILE_HEIGHT));
 		vkUnmapMemory(device, uniformBufferMemory);
 
 	}
